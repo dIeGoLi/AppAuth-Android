@@ -329,6 +329,22 @@ public class AuthorizationService {
     }
 
     /**
+     * Sends a request to the authorization service to exchange a code granted as part of an
+     * authorization request for a token. The result of this request will be sent to the provided
+     * callback handler.
+     */
+    public TokenRequestCallableResult performTokenRequest(
+        @NonNull TokenRequest request,
+        @NonNull ClientAuthentication clientAuthentication) {
+        checkNotDisposed();
+        Logger.debug("Initiating code exchange request to %s",
+            request.configuration.tokenEndpoint);
+        return new TokenRequestCallable(request, clientAuthentication,
+            mClientConfiguration.getConnectionBuilder(), SystemClock.INSTANCE).call();
+
+    }
+
+    /**
      * Sends a request to the authorization service to dynamically register a client.
      * The result of this request will be sent to the provided callback handler.
      */
@@ -394,154 +410,33 @@ public class AuthorizationService {
     }
 
     private static class TokenRequestTask
-            extends AsyncTask<Void, Void, JSONObject> {
+            extends AsyncTask<Void, Void, TokenRequestCallableResult> {
 
-        private TokenRequest mRequest;
-        private ClientAuthentication mClientAuthentication;
-        private final ConnectionBuilder mConnectionBuilder;
         private TokenResponseCallback mCallback;
-        private Clock mClock;
-
-        private AuthorizationException mException;
+        private TokenRequestCallable mCallable;
 
         TokenRequestTask(TokenRequest request,
                          @NonNull ClientAuthentication clientAuthentication,
                          @NonNull ConnectionBuilder connectionBuilder,
                          Clock clock,
                          TokenResponseCallback callback) {
-            mRequest = request;
-            mClientAuthentication = clientAuthentication;
-            mConnectionBuilder = connectionBuilder;
-            mClock = clock;
             mCallback = callback;
+            mCallable = new TokenRequestCallable(request,clientAuthentication,connectionBuilder, clock);
         }
 
         @Override
-        protected JSONObject doInBackground(Void... voids) {
-            InputStream is = null;
+        protected TokenRequestCallableResult doInBackground(Void... voids) {
             try {
-                HttpURLConnection conn = mConnectionBuilder.openConnection(
-                        mRequest.configuration.tokenEndpoint);
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-                addJsonToAcceptHeader(conn);
-                conn.setDoOutput(true);
-
-                Map<String, String> headers = mClientAuthentication
-                        .getRequestHeaders(mRequest.clientId);
-                if (headers != null) {
-                    for (Map.Entry<String,String> header : headers.entrySet()) {
-                        conn.setRequestProperty(header.getKey(), header.getValue());
-                    }
-                }
-
-                Map<String, String> parameters = mRequest.getRequestParameters();
-                Map<String, String> clientAuthParams = mClientAuthentication
-                        .getRequestParameters(mRequest.clientId);
-                if (clientAuthParams != null) {
-                    parameters.putAll(clientAuthParams);
-                }
-
-                String queryData = UriUtil.formUrlEncode(parameters);
-                conn.setRequestProperty("Content-Length", String.valueOf(queryData.length()));
-                OutputStreamWriter wr = new OutputStreamWriter(conn.getOutputStream());
-
-                wr.write(queryData);
-                wr.flush();
-
-                if (conn.getResponseCode() >= HttpURLConnection.HTTP_OK
-                        && conn.getResponseCode() < HttpURLConnection.HTTP_MULT_CHOICE) {
-                    is = conn.getInputStream();
-                } else {
-                    is = conn.getErrorStream();
-                }
-                String response = Utils.readInputStream(is);
-                return new JSONObject(response);
-            } catch (IOException ex) {
-                Logger.debugWithStack(ex, "Failed to complete exchange request");
-                mException = AuthorizationException.fromTemplate(
-                        GeneralErrors.NETWORK_ERROR, ex);
-            } catch (JSONException ex) {
-                Logger.debugWithStack(ex, "Failed to complete exchange request");
-                mException = AuthorizationException.fromTemplate(
-                        GeneralErrors.JSON_DESERIALIZATION_ERROR, ex);
-            } finally {
-                Utils.closeQuietly(is);
+                return mCallable.call();
+            } catch (Exception e) {
+                e.printStackTrace();
             }
             return null;
         }
 
         @Override
-        protected void onPostExecute(JSONObject json) {
-            if (mException != null) {
-                mCallback.onTokenRequestCompleted(null, mException);
-                return;
-            }
-
-            if (json.has(AuthorizationException.PARAM_ERROR)) {
-                AuthorizationException ex;
-                try {
-                    String error = json.getString(AuthorizationException.PARAM_ERROR);
-                    ex = AuthorizationException.fromOAuthTemplate(
-                            TokenRequestErrors.byString(error),
-                            error,
-                            json.optString(AuthorizationException.PARAM_ERROR_DESCRIPTION, null),
-                            UriUtil.parseUriIfAvailable(
-                                    json.optString(AuthorizationException.PARAM_ERROR_URI)));
-                } catch (JSONException jsonEx) {
-                    ex = AuthorizationException.fromTemplate(
-                            GeneralErrors.JSON_DESERIALIZATION_ERROR,
-                            jsonEx);
-                }
-                mCallback.onTokenRequestCompleted(null, ex);
-                return;
-            }
-
-            TokenResponse response;
-            try {
-                response = new TokenResponse.Builder(mRequest).fromResponseJson(json).build();
-            } catch (JSONException jsonEx) {
-                mCallback.onTokenRequestCompleted(null,
-                        AuthorizationException.fromTemplate(
-                                GeneralErrors.JSON_DESERIALIZATION_ERROR,
-                                jsonEx));
-                return;
-            }
-
-            if (response.idToken != null) {
-                IdToken idToken;
-                try {
-                    idToken = IdToken.from(response.idToken);
-                } catch (IdTokenException | JSONException ex) {
-                    mCallback.onTokenRequestCompleted(null,
-                            AuthorizationException.fromTemplate(
-                                    GeneralErrors.ID_TOKEN_PARSING_ERROR,
-                                    ex));
-                    return;
-                }
-
-                try {
-                    idToken.validate(mRequest, mClock);
-                } catch (AuthorizationException ex) {
-                    mCallback.onTokenRequestCompleted(null, ex);
-                    return;
-                }
-            }
-            Logger.debug("Token exchange with %s completed",
-                    mRequest.configuration.tokenEndpoint);
-            mCallback.onTokenRequestCompleted(response, null);
-        }
-
-        /**
-         * GitHub will only return a spec-compliant response if JSON is explicitly defined
-         * as an acceptable response type. As this is essentially harmless for all other
-         * spec-compliant IDPs, we add this header if no existing Accept header has been set
-         * by the connection builder.
-         */
-        private void addJsonToAcceptHeader(URLConnection conn) {
-            if (TextUtils.isEmpty(conn.getRequestProperty("Accept"))) {
-                conn.setRequestProperty("Accept", "application/json");
-            }
+        protected void onPostExecute(TokenRequestCallableResult result) {
+            mCallback.onTokenRequestCompleted(result.response, result.ex);
         }
     }
 

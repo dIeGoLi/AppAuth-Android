@@ -1,8 +1,8 @@
 {
-  "client_id": "",
-  "redirect_uri": "net.openid.appauthdemo:/oauth2redirect",
-  "authorization_scope": "openid email profile",
-  "discovery_uri": "",
+  "client_id": "perigon.mobile",
+  "redirect_uri": "ch.root.perigon:/authcallback",
+  "authorization_scope": "openid profile offline_access",
+  "discovery_uri": "https://pc131.root.dom/identityservice/.well-known/openid-configuration",
   "authorization_endpoint_uri": "",
   "token_endpoint_uri": "",
   "registration_endpoint_uri": "",
