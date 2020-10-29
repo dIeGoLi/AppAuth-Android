@@ -592,6 +592,79 @@ public class AuthState {
                 });
     }
 
+
+    public void refreshTokens(@NonNull AuthorizationService service) throws AuthorizationException {
+        if (!getNeedsTokenRefresh()) {
+            return;
+        }
+        refreshTokens(service,
+            NoClientAuthentication.INSTANCE,
+            Collections.<String, String>emptyMap(),
+            SystemClock.INSTANCE);
+    }
+
+    @VisibleForTesting
+    void refreshTokens(
+        @NonNull final AuthorizationService service,
+        @NonNull final ClientAuthentication clientAuth,
+        @NonNull final Map<String, String> refreshTokenAdditionalParams,
+        @NonNull final Clock clock) throws AuthorizationException {
+        checkNotNull(service, "service cannot be null");
+        checkNotNull(clientAuth, "client authentication cannot be null");
+        checkNotNull(refreshTokenAdditionalParams,
+            "additional params cannot be null");
+        checkNotNull(clock, "clock cannot be null");
+
+        if (mRefreshToken == null) {
+            AuthorizationException ex = AuthorizationException.fromTemplate(
+                AuthorizationRequestErrors.CLIENT_ERROR,
+                new IllegalStateException("No refresh token available and token have expired"));
+            throw ex;
+        }
+/*
+        checkNotNull(mPendingActionsSyncObject, "pending actions sync object cannot be null");
+        synchronized (mPendingActionsSyncObject) {
+            //if a token request is currently executing, queue the actions instead
+            if (mPendingActions != null) {
+                mPendingActions.add(action);
+                return;
+            }
+
+            //creates a list of pending actions, starting with the current action
+            mPendingActions = new ArrayList<>();
+            mPendingActions.add(action);
+        }*/
+
+        TokenRequestCallableResult result = service.performTokenRequest(
+            createTokenRefreshRequest(refreshTokenAdditionalParams),
+            clientAuth);
+        update(result.response, result.ex);
+        if (result.ex != null) {
+            throw result.ex;
+        }
+/*        String accessToken = null;
+        String idToken = null;
+        AuthorizationException exception = null;
+
+        if (ex == null) {
+            mNeedsTokenRefreshOverride = false;
+            accessToken = getAccessToken();
+            idToken = getIdToken();
+        } else {
+            exception = ex;
+        }
+
+        //sets pending queue to null and processes all actions in the queue
+        List<AuthStateAction> actionsToProcess;
+        synchronized (mPendingActionsSyncObject) {
+            actionsToProcess = mPendingActions;
+            mPendingActions = null;
+        }
+        for (AuthStateAction action : actionsToProcess) {
+            action.execute(accessToken, idToken, exception);
+        }*/
+    }
+
     /**
      * Creates a token request for new tokens using the current refresh token.
      */

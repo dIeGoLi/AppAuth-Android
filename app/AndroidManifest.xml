@@ -79,9 +79,7 @@
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="https"
-                  android:host="appauth.demo-app.io"
-                  android:path="/oauth2redirect"/>
+                <data android:scheme="ch.root.perigon"/>
             </intent-filter>
         </activity>
     </application>
